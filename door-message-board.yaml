@@ -22,9 +22,7 @@ ota:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  ap:
-    ssid: Door Message Board Fallback Hotspot
-    password: "POrrEja9mHM9"
+
 
 substitutions:
   device_name: crowpanel-door

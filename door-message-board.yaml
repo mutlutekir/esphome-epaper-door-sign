@@ -14,7 +14,7 @@ esphome:
         
 api:
   encryption:
-    key: "YR+1nT3hE9br+vcPUby1qJe+0NFj3ezDhYJd+l6E65g="
+    key: "YOUR API KEY"
 
 ota:
   - platform: esphome

@@ -11,7 +11,7 @@ Great for messages like *"Please leave the package by the door"*, *"Back in 10 m
 - 🖼️ Custom bottom illustration (swap out the PNG for your own artwork)
 - 🎨 Built with LVGL for clean, flicker-free layout control
 - 🔋 E-paper display — retains the image with no power once drawn
-- 🧹 Automatic full refresh every 8 partial updates to prevent ghosting
+- 🧹 Automatic full refresh every partial updates to prevent ghosting
 - 📶 Wi-Fi with fallback AP + captive portal if it can't connect
 - 🏠 Native Home Assistant integration via ESPHome API (encrypted)
 

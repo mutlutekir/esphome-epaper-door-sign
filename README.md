@@ -70,6 +70,8 @@ external_components:
 
 - `Door Message` — text (up to 100 characters)
 - `Message Font Size` — select (Small / Medium / Large)
+- Clear Screen (button) — Manually trigger a full e-ink screen refresh to clear any potential ghosting.
+- Customizable png photo.
 
 ## License
 

@@ -14,7 +14,7 @@ esphome:
         
 api:
   encryption:
-    key: "YOUR API KEY"
+    key: "YOUR_API_KEY_HERE"
 
 ota:
   - platform: esphome
@@ -22,11 +22,13 @@ ota:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-
+  ap:
+    ssid: Door Message Board Fallback Hotspot
+    password: "YOUR_FALLBACK_PASSWORD_HERE"
 
 substitutions:
   device_name: crowpanel-door
-  friendly_name: "Door Package Board"
+  friendly_name: "Door Delivery Board"
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -44,7 +46,6 @@ captive_portal:
 # ============================================================
 # E-PAPER POWER
 # ============================================================
-
 switch:
   - platform: gpio
     pin: GPIO7
@@ -54,9 +55,20 @@ switch:
     internal: true
 
 # ============================================================
+# MANUAL CLEAR BUTTON (Anti-Ghosting)
+# ============================================================
+button:
+  - platform: template
+    name: "Clear Screen (Full Refresh)"
+    id: force_full_refresh
+    icon: "mdi:refresh"
+    on_press:
+      then:
+        - component.update: epd
+
+# ============================================================
 # EXTERNAL COMPONENT
 # ============================================================
-
 external_components:
   - source:
       type: git
@@ -68,7 +80,6 @@ external_components:
 # ============================================================
 # E-PAPER
 # ============================================================
-
 display:
   - platform: crowpanel_epaper
     id: epd
@@ -86,58 +97,54 @@ display:
 
     rotation: 0
 
-    # Full refresh every 8 updates.
-    # Reduces ghosting.
-    full_update_every: 8
+    # Full refresh every 1 update reduces ghosting for low-frequency updates.
+    full_update_every: 1
 
-    # Since we'll be using LVGL, ESPHome
-    # won't clear the screen on its own.
     auto_clear_enabled: false
     update_interval: never
 
 # ============================================================
 # FONTS
 # ============================================================
-
 font:
-  # Large title
   - file: "gfonts://Roboto"
     id: font_title
     size: 38
-    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ÇçĞğİıÖöŞşÜü"
+    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
 
-  # Dynamic Message Fonts (3 different sizes)
   - file: "gfonts://Roboto"
-    id: font_msg_small
+    id: font_small
     size: 26
-    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ÇçĞğİıÖöŞşÜü"
+    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
 
   - file: "gfonts://Roboto"
-    id: font_msg_medium
+    id: font_medium
     size: 32
-    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ÇçĞğİıÖöŞşÜü"
+    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
 
   - file: "gfonts://Roboto"
-    id: font_msg_large
+    id: font_large
     size: 38
-    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ÇçĞğİıÖöŞşÜü"
+    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
 
-  # Small info text
   - file: "gfonts://Roboto"
-    id: font_info_small
-    size: 18
-    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ÇçĞğİıÖöŞşÜü"
+    id: font_tiny
+    size: 14 # Scaled down for smaller labels if needed
+    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
 
 image:
-  - file: "en_alt_cicek_kedi.png"
+  - file: "bottom_image_flower_cat.png"
     id: image_bottom_flower_cat
     type: BINARY
     dither: NONE
 
+# ============================================================
+# FONT SIZE SELECTION (Optimized)
+# ============================================================
 select:
   - platform: template
     name: "Message Font Size"
-    id: font_size_select
+    id: font_size_selection
     optimistic: true
     options:
       - "Small"
@@ -146,51 +153,20 @@ select:
     initial_option: "Medium"
     on_value:
       then:
-        - if:
-            condition:
-              lambda: 'return x == "Small";'
-            then:
-              - lvgl.widget.update:
-                  id: msg_small
-                  hidden: false
-              - lvgl.widget.update:
-                  id: msg_medium
-                  hidden: true
-              - lvgl.widget.update:
-                  id: msg_large
-                  hidden: true
-        - if:
-            condition:
-              lambda: 'return x == "Medium";'
-            then:
-              - lvgl.widget.update:
-                  id: msg_small
-                  hidden: true
-              - lvgl.widget.update:
-                  id: msg_medium
-                  hidden: false
-              - lvgl.widget.update:
-                  id: msg_large
-                  hidden: true
-        - if:
-            condition:
-              lambda: 'return x == "Large";'
-            then:
-              - lvgl.widget.update:
-                  id: msg_small
-                  hidden: true
-              - lvgl.widget.update:
-                  id: msg_medium
-                  hidden: true
-              - lvgl.widget.update:
-                  id: msg_large
-                  hidden: false
+        - lvgl.widget.update:
+            id: message_small
+            hidden: !lambda 'return x != "Small";'
+        - lvgl.widget.update:
+            id: message_medium
+            hidden: !lambda 'return x != "Medium";'
+        - lvgl.widget.update:
+            id: message_large
+            hidden: !lambda 'return x != "Large";'
         - component.update: epd
           
 # ============================================================
-# DOOR MESSAGE (auto-created in Home Assistant)
+# DOOR MESSAGE
 # ============================================================
-
 text:
   - platform: template
     name: "Door Message"
@@ -199,29 +175,19 @@ text:
     mode: text
     min_length: 0
     max_length: 100
-    initial_value: "Please leave the package by the door."
+    initial_value: "Please leave the package at the door."
     on_value:
       then:
         - lvgl.label.update:
-            id: msg_small
+            id: message_small
             text: !lambda 'return x;'
         - lvgl.label.update:
-            id: msg_medium
+            id: message_medium
             text: !lambda 'return x;'
         - lvgl.label.update:
-            id: msg_large
+            id: message_large
             text: !lambda 'return x;'
         - component.update: epd
-
-# ============================================================
-# DEFAULT MESSAGE
-# ============================================================
-
-globals:
-  - id: default_message
-    type: std::string
-    restore_value: no
-    initial_value: '"Welcome."'
 
 # ============================================================
 # LVGL SCREEN
@@ -233,12 +199,9 @@ lvgl:
   buffer_size: 25%
   color_depth: 16
 
-  on_draw_end:
-    - component.update: epd
-
   theme:
     label:
-      text_font: font_msg_medium
+      text_font: font_medium
       text_color: 0x000000
 
   pages:
@@ -246,7 +209,7 @@ lvgl:
       bg_color: 0xFFFFFF
       widgets:
         # ----------------------------------------------------
-        # 1. TOP FRAME (surrounds only the text)
+        # 1. UPPER FRAME
         # ----------------------------------------------------
         - obj:
             x: 8
@@ -259,62 +222,63 @@ lvgl:
             radius: 8
 
             widgets:
-              # --- HEADER ---
+
+              # --- DELIVERY TITLE ---
               - label:
                   id: title_label
                   align: TOP_MID
-                  y: 0
+                  y: 5
                   text: "WELCOME"
                   text_font: font_title
                   text_color: 0x000000
 
-              # --- DIVIDER LINE ---
+              # --- SEPARATOR LINE (Aligned) ---
               - line:
                   points:
-                    - 20, 50
-                    - 325, 50
+                    - 42, 52
+                    - 342, 52
                   line_width: 2
                   line_color: 0x000000
 
-              # --- MESSAGE (3 different font sizes) ---
+              # --- MESSAGE (3 Different Font Sizes) ---
               - label:
-                  id: msg_small
+                  id: message_small
                   align: TOP_MID
-                  y: 55
-                  width: 370
-                  text: "Please leave the package by the door."
-                  text_font: font_msg_small
+                  y: 65
+                  width: 360
+                  text: "Please leave the package at the door."
+                  text_font: font_small
                   text_color: 0x000000
                   text_align: CENTER
                   long_mode: WRAP
                   hidden: true
 
               - label:
-                  id: msg_medium
+                  id: message_medium
                   align: TOP_MID
-                  y: 55
-                  width: 370
-                  text: "Please leave the package by the door."
-                  text_font: font_msg_medium
+                  y: 65
+                  width: 360
+                  text: "Please leave the package at the door."
+                  text_font: font_medium
                   text_color: 0x000000
                   text_align: CENTER
                   long_mode: WRAP
                   hidden: false
 
               - label:
-                  id: msg_large
+                  id: message_large
                   align: TOP_MID
-                  y: 55
-                  width: 370
-                  text: "Please leave the package by the door."
-                  text_font: font_msg_large
+                  y: 65
+                  width: 360
+                  text: "Please leave the package at the door."
+                  text_font: font_large
                   text_color: 0x000000
                   text_align: CENTER
                   long_mode: WRAP
                   hidden: true
 
         # ----------------------------------------------------
-        # 2. BOTTOM IMAGE (outside the frame, covers full screen)
+        # 2. BOTTOM IMAGE
         # ----------------------------------------------------
         - image:
             src: image_bottom_flower_cat

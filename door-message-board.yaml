@@ -225,7 +225,7 @@ font:
     glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ÇçĞğİıÖöŞşÜü"
  
 image:
-  - file: "en_alt_cicek_kedi.png"
+  - file: "bottom_image.png"
     id: bottom_image_res
     type: BINARY
     dither: NONE

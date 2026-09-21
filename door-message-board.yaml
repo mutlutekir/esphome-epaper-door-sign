@@ -1,48 +1,58 @@
 # Board: Espressif ESP32-S3-DevKitC-1-N8R8 (8 MB Flash Quad, 8 MB PSRAM Octal)
 # Definition: definitions/boards/esp32-s3-devkitc1-n8r8/manifest.yaml
-
+#
+# ============================================================
+# SECRETS: this file references the following keys via !secret.
+# Add them to your own (git-ignored) secrets.yaml before flashing:
+#
+#   wifi_ssid: "your-wifi-name"
+#   wifi_password: "your-wifi-password"
+#   api_encryption_key: "generate with: esphome secrets or `openssl rand -base64 32`"
+#   wifi_ap_password: "a password for the fallback AP hotspot (min. 8 chars)"
+# ============================================================
+ 
 esphome:
-  name: door-message-board
-  friendly_name: Door Message Board
+  name: kapi-mesaj-panosu
+  friendly_name: "Door Message Board"
   comment: "Elecrow CrowPanel 4.2 inch E-Paper Door Message Board"
-
+ 
   on_boot:
     priority: 600
     then:
       - switch.turn_on: epd_power
       - delay: 500ms
-        
+ 
 api:
   encryption:
-    key: "YOUR_API_KEY_HERE"
-
+    key: !secret api_encryption_key
+ 
 ota:
   - platform: esphome
-
+ 
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   ap:
-    ssid: Door Message Board Fallback Hotspot
-    password: "YOUR_FALLBACK_PASSWORD_HERE"
-
+    ssid: "Door Message Fallback Hotspot"
+    password: !secret wifi_ap_password
+ 
 substitutions:
   device_name: crowpanel-door
-  friendly_name: "Door Delivery Board"
-
+  friendly_name: "Door Cargo Board"
+ 
 esp32:
   board: esp32-s3-devkitc-1
   framework:
     type: esp-idf
-
+ 
 psram:
   mode: octal
   speed: 80MHz
-
+ 
 logger:
-
+ 
 captive_portal:
-
+ 
 # ============================================================
 # E-PAPER POWER
 # ============================================================
@@ -53,98 +63,185 @@ switch:
     name: "E-Paper Power"
     restore_mode: ALWAYS_ON
     internal: true
-
+ 
 # ============================================================
-# MANUAL CLEAR BUTTON (Anti-Ghosting)
+# REFRESH (single, plain push - no automatic chaining)
+#
+# The "opposite color/contrast first, then content" look wasn't coming
+# from the script or from timing (a 400ms delay was added - no change).
+# It's inherent to the FULL (GC) refresh waveform itself: to clear
+# ghosting, the controller flashes the screen to the opposite color/
+# black/white briefly, all within ONE hardware command, THEN draws the
+# target content. With full_update_every: 1, EVERY push did this -
+# there's no way to turn it off from the script, since the script only
+# says "push now"; which mode (full vs partial) is used is decided by
+# the controller's own counter (full_update_every).
+#
+# FIX: normal content pushes are now left on PARTIAL (DU) refresh - the
+# DU waveform doesn't do this flash, it draws the target content
+# directly (see display: full_update_every: 20). That's why the
+# force_full_update() call was REMOVED here; this script now just says
+# "push whatever is on screen right now" - which mode (full/partial)
+# gets used is entirely up to the controller's own counter.
+# ============================================================
+script:
+  - id: refresh_display
+    then:
+      - delay: 400ms
+      - component.update: epd
+ 
+  # ============================================================
+  # MESSAGE - SINGLE ROUND: fully white first -> 2s -> content
+  # One "round" (2 physical pushes: white + content), no repetition.
+  # Confirmed by testing: pushing fully white first, THEN the real
+  # content, gives a crisp/sharp result.
+  # ============================================================
+  - id: refresh_message
+    then:
+      - lvgl.page.show: p_white
+      - delay: 400ms
+      - component.update: epd
+      - delay: 2s
+      - lvgl.page.show: main_page
+      - script.execute: refresh_display
+ 
+# ============================================================
+# BUTTONS
 # ============================================================
 button:
+  # --- DEEP CLEAN: washes the ENTIRE panel (text area + background +
+  #     image) with one full black <-> full white round.
+  #     Use this for persistent haze / low contrast / DC imbalance that
+  #     a normal refresh doesn't fix.
+  #     Takes ~6 seconds (1 round); the panel flashes black once, then
+  #     white once.
   - platform: template
-    name: "Clear Screen (Full Refresh)"
-    id: force_full_refresh
-    icon: "mdi:refresh"
+    name: "Deep Clean Panel"
+    id: deep_clean
+    icon: "mdi:water-off"
     on_press:
       then:
-        - component.update: epd
-
+        # Temporarily hide the frame/image so the page background
+        # (main_page bg_color) covers the whole panel.
+        - lvgl.widget.hide: frame
+        - lvgl.widget.hide: bottom_image
+        - repeat:
+            count: 1
+            then:
+              - lvgl.widget.update:
+                  id: main_page
+                  bg_color: 0x000000
+              - lambda: 'id(epd).force_full_update();'
+              - component.update: epd
+              - delay: 3s
+              - lvgl.widget.update:
+                  id: main_page
+                  bg_color: 0xFFFFFF
+              - lambda: 'id(epd).force_full_update();'
+              - component.update: epd
+              - delay: 3s
+        # Restore the real content. NOTE: the old force_full_update()
+        # call here forced FULL (GC) mode, which caused that exact
+        # "opposite color/contrast first, then content" flash (and made
+        # the text look gray). refresh_message already pushes this
+        # cleanly via partial refresh + a white pre-step, so we reuse it.
+        - lvgl.widget.show: frame
+        - lvgl.widget.show: bottom_image
+        - script.execute: refresh_message
+ 
 # ============================================================
 # EXTERNAL COMPONENT
 # ============================================================
 external_components:
   - source:
-      type: git
-      url: https://github.com/ESPBoards/esphome-lvgl-crowpanel-epaper-5.79-4.2
-      ref: main
+      type: local
+      path: components
     components:
       - crowpanel_epaper
-
+ 
 # ============================================================
 # E-PAPER
 # ============================================================
 display:
   - platform: crowpanel_epaper
     id: epd
-
+ 
     # V1.0 = SSD1683
     # V1.2 = UC8276C
-    model: "4.20in-v1.2" 
-
+    model: "4.20in-v1.2"
+ 
     clk_pin: GPIO12
     mosi_pin: GPIO11
     cs_pin: GPIO45
     dc_pin: GPIO46
     reset_pin: GPIO47
     busy_pin: GPIO48
-
+ 
     rotation: 0
-
-    # Full refresh every 1 update reduces ghosting for low-frequency updates.
-    full_update_every: 1
-
+ 
+    # IMPORTANT: full (GC) refresh uses a waveform built around the panel
+    # ITSELF briefly flashing the screen to the opposite color/black/
+    # white, within one hardware command, to clear ghosting - this isn't
+    # a step coming from a script, it's the nature of the controller's
+    # "GC" mode. With full_update_every: 1, EVERY push did this - that's
+    # where the "opposite color, then content" feeling came from. To
+    # avoid this unwanted flash, normal content pushes are now left on
+    # partial (DU) refresh (no flash, draws the target content directly);
+    # a full refresh still runs automatically every 20 pushes so ghosting
+    # doesn't build up. For an immediate deep clean, the "Deep Clean
+    # Panel" button still deliberately uses full mode.
+    full_update_every: 20
+ 
     auto_clear_enabled: false
     update_interval: never
-
+ 
 # ============================================================
 # FONTS
 # ============================================================
 font:
-  - file: "gfonts://Roboto"
+  - file: "gfonts://Roboto@900"
     id: font_title
     size: 38
-    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
-
-  - file: "gfonts://Roboto"
-    id: font_small
+    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ÇçĞğİıÖöŞşÜü"
+ 
+  - file: "gfonts://Roboto@900"
+    id: font_message_small
     size: 26
-    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
-
-  - file: "gfonts://Roboto"
-    id: font_medium
+    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ÇçĞğİıÖöŞşÜü"
+ 
+  - file: "gfonts://Roboto@900"
+    id: font_message_medium
     size: 32
-    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
-
-  - file: "gfonts://Roboto"
-    id: font_large
+    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ÇçĞğİıÖöŞşÜü"
+ 
+  - file: "gfonts://Roboto@900"
+    id: font_message_large
     size: 38
-    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
-
-  - file: "gfonts://Roboto"
-    id: font_tiny
-    size: 14 # Scaled down for smaller labels if needed
-    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
-
+    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ÇçĞğİıÖöŞşÜü"
+ 
+  - file: "gfonts://Roboto@900"
+    id: font_indicator_small
+    size: 14 # Shrunk for the signal indicator
+    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ÇçĞğİıÖöŞşÜü"
+ 
 image:
-  - file: "bottom_image_flower_cat.png"
-    id: image_bottom_flower_cat
+  - file: "en_alt_cicek_kedi.png"
+    id: bottom_image_res
     type: BINARY
     dither: NONE
-
+ 
 # ============================================================
-# FONT SIZE SELECTION (Optimized)
+# FONT SIZE SELECTION (optimized)
 # ============================================================
+# Note: this no longer auto-pushes to the screen. Changing the font
+# size only updates the LVGL label; to push it to the panel, either
+# select "Message Board" from "EPD Diagnostic Test" manually, or
+# re-submit the message text (that triggers the automatic
+# white->content sequence).
 select:
   - platform: template
     name: "Message Font Size"
-    id: font_size_selection
+    id: font_size_select
     optimistic: true
     options:
       - "Small"
@@ -162,10 +259,69 @@ select:
         - lvgl.widget.update:
             id: message_large
             hidden: !lambda 'return x != "Large";'
-        - component.update: epd
-          
+ 
+  # ============================================================
+  # EPD DIAGNOSTIC TEST
+  # Disables LVGL/fonts/image to test the panel's raw drive: White /
+  # Black / Checkerboard / Lines+Box. Used to tell apart where contrast
+  # breaks down (the font, thin lines, or the panel itself). Selecting
+  # "Message Board" returns to normal content.
+  #
+  # NO MORE automatic "switch to black first, wait, then show target"
+  # chain. Whatever page you pick is pushed ONCE, plainly. If you want
+  # a black->content order to avoid a graying transition, do it
+  # yourself MANUALLY: pick "Black" here first (pushes solid black),
+  # then once that push is done, pick "Message Board" (or whichever
+  # test page you want) as a second, separate step (also a single,
+  # plain push).
+  # ============================================================
+  - platform: template
+    name: "EPD Diagnostic Test"
+    id: diagnostic_test
+    optimistic: true
+    options:
+      - "Message Board"
+      - "White"
+      - "Black"
+      - "Checkerboard"
+      - "Lines+Box"
+    initial_option: "Message Board"
+    on_value:
+      then:
+        - if:
+            condition:
+              lambda: 'return x == "Message Board";'
+            then:
+              - lvgl.page.show: main_page
+        - if:
+            condition:
+              lambda: 'return x == "White";'
+            then:
+              - lvgl.page.show: p_white
+        - if:
+            condition:
+              lambda: 'return x == "Black";'
+            then:
+              - lvgl.page.show: p_black
+        - if:
+            condition:
+              lambda: 'return x == "Checkerboard";'
+            then:
+              - lvgl.page.show: p_checker
+        - if:
+            condition:
+              lambda: 'return x == "Lines+Box";'
+            then:
+              - lvgl.page.show: p_lines
+        # Pushed via refresh_display - this way the invisible wait for
+        # LVGL to finish drawing the new page (see the note at the top
+        # of refresh_display) also applies here.
+        - script.execute: refresh_display
+ 
 # ============================================================
 # DOOR MESSAGE
+# Pressing Enter (text.on_value) updates the labels and refreshes the
+# panel in a SINGLE round (refresh_message).
 # ============================================================
 text:
   - platform: template
@@ -187,31 +343,34 @@ text:
         - lvgl.label.update:
             id: message_large
             text: !lambda 'return x;'
-        - component.update: epd
-
+        - script.execute: refresh_message
+ 
 # ============================================================
 # LVGL SCREEN
 # ============================================================
 lvgl:
   displays:
     - epd
-
+ 
   buffer_size: 25%
   color_depth: 16
-
+ 
+ 
   theme:
     label:
-      text_font: font_medium
+      text_font: font_message_medium
       text_color: 0x000000
-
+      text_opa: 100%
+ 
   pages:
     - id: main_page
       bg_color: 0xFFFFFF
       widgets:
         # ----------------------------------------------------
-        # 1. UPPER FRAME
+        # 1. TOP FRAME
         # ----------------------------------------------------
         - obj:
+            id: frame
             x: 8
             y: 8
             width: 384
@@ -220,10 +379,10 @@ lvgl:
             border_width: 3
             border_color: 0x000000
             radius: 8
-
+ 
             widgets:
-
-              # --- DELIVERY TITLE ---
+ 
+              # --- HEADER ---
               - label:
                   id: title_label
                   align: TOP_MID
@@ -231,56 +390,143 @@ lvgl:
                   text: "WELCOME"
                   text_font: font_title
                   text_color: 0x000000
-
-              # --- SEPARATOR LINE (Aligned) ---
+ 
+              # --- DIVIDER LINE (aligned) ---
               - line:
                   points:
                     - 42, 52
                     - 342, 52
                   line_width: 2
                   line_color: 0x000000
-
-              # --- MESSAGE (3 Different Font Sizes) ---
+ 
+              # --- MESSAGE (3 font sizes) ---
               - label:
                   id: message_small
                   align: TOP_MID
                   y: 65
                   width: 360
                   text: "Please leave the package at the door."
-                  text_font: font_small
+                  text_font: font_message_small
                   text_color: 0x000000
                   text_align: CENTER
                   long_mode: WRAP
                   hidden: true
-
+ 
               - label:
                   id: message_medium
                   align: TOP_MID
                   y: 65
                   width: 360
                   text: "Please leave the package at the door."
-                  text_font: font_medium
+                  text_font: font_message_medium
                   text_color: 0x000000
                   text_align: CENTER
                   long_mode: WRAP
                   hidden: false
-
+ 
               - label:
                   id: message_large
                   align: TOP_MID
                   y: 65
                   width: 360
                   text: "Please leave the package at the door."
-                  text_font: font_large
+                  text_font: font_message_large
                   text_color: 0x000000
                   text_align: CENTER
                   long_mode: WRAP
                   hidden: true
-
+ 
         # ----------------------------------------------------
         # 2. BOTTOM IMAGE
         # ----------------------------------------------------
         - image:
-            src: image_bottom_flower_cat
+            id: bottom_image
+            src: bottom_image_res
             align: BOTTOM_MID
             y: -5
+ 
+    # ----------------------------------------------------
+    # DIAGNOSTIC TEST PAGES (raw panel test, no LVGL/font)
+    # ----------------------------------------------------
+    - id: p_white
+      bg_color: 0xFFFFFF
+      widgets: []
+ 
+    - id: p_black
+      bg_color: 0x000000
+      widgets: []
+ 
+    - id: p_checker
+      bg_color: 0xFFFFFF
+      widgets:
+        # 8x6 = 48 squares, 50x50px each (400x300 panel)
+        - obj: { x: 0,   y: 0,   width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 100, y: 0,   width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 200, y: 0,   width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 300, y: 0,   width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 50,  y: 50,  width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 150, y: 50,  width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 250, y: 50,  width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 350, y: 50,  width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 0,   y: 100, width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 100, y: 100, width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 200, y: 100, width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 300, y: 100, width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 50,  y: 150, width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 150, y: 150, width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 250, y: 150, width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 350, y: 150, width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 0,   y: 200, width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 100, y: 200, width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 200, y: 200, width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 300, y: 200, width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 50,  y: 250, width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 150, y: 250, width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 250, y: 250, width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+        - obj: { x: 350, y: 250, width: 50, height: 50, bg_color: 0x000000, border_width: 0 }
+ 
+    - id: p_lines
+      bg_color: 0xFFFFFF
+      widgets:
+        # Large solid black box (thick fill)
+        - obj:
+            x: 20
+            y: 20
+            width: 150
+            height: 100
+            bg_color: 0x000000
+            border_width: 0
+        # 3px-thick border (identical to the real border used on the board)
+        - obj:
+            x: 200
+            y: 20
+            width: 150
+            height: 100
+            bg_color: 0xFFFFFF
+            border_width: 3
+            border_color: 0x000000
+        # Thin horizontal lines (1, 2, 3, 4 px)
+        - line:
+            points:
+              - 20, 160
+              - 380, 160
+            line_width: 1
+            line_color: 0x000000
+        - line:
+            points:
+              - 20, 175
+              - 380, 175
+            line_width: 2
+            line_color: 0x000000
+        - line:
+            points:
+              - 20, 195
+              - 380, 195
+            line_width: 3
+            line_color: 0x000000
+        - line:
+            points:
+              - 20, 220
+              - 380, 220
+            line_width: 4
+            line_color: 0x000000
